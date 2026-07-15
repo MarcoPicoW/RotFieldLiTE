@@ -5,8 +5,9 @@
   Display: 1.47" ST7789 172x320 SPI (IPS)
   IDE    : Arduino IDE
 
-  Libreria richiesta:
-    "GFX Library for Arduino" (Arduino_GFX_Library) - Library Manager
+  Librerie richieste (Library Manager):
+    "Adafruit GFX Library"
+    "Adafruit ST7735 and ST7789 Library"
 
   Selezione board:
     Tools > Board > "Raspberry Pi Pico/RP2040" > Waveshare RP2040-Zero
@@ -33,7 +34,9 @@
       inquadra il treno di impulsi (reset all'apertura, lettura alla chiusura).
 */
 
-#include <Arduino_GFX_Library.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
 
 // ---------- PIN DISPLAY (SPI0) ----------
 #define TFT_SCK   2
@@ -54,72 +57,96 @@
 #define GATE_DIALING  HIGH
 
 // ---------- TEMPI ----------
-const uint32_t PULSE_DEBOUNCE_US = 4000;   // 4 ms, ben sotto il make (~33 ms)
+// Debounce a campionamento (livello stabile per N ms), stessa tecnica del
+// gate: piu' robusto del vecchio interrupt+timeout contro rimbalzi irregolari.
+const uint16_t PULSE_DEBOUNCE_MS = 20;     // il livello deve restare stabile 20ms
 const uint16_t GATE_DEBOUNCE_MS  = 15;     // il gate commuta 1 volta per cifra
 const uint8_t  MAX_DIGITS        = 24;
 
+// ---------- DEBUG ----------
+// Se attivo, stampa su Serial ogni impulso valido riconosciuto.
+#define DEBUG_PULSES 1
+
 // ---------- COLORI ----------
-#define COL_TITLE   CYAN
-#define COL_NUM     GREEN
+#define COL_TITLE   ST77XX_CYAN
+#define COL_NUM     ST77XX_GREEN
 #define COL_DIM     0x7BEF   // grigio
-#define COL_STATUS  YELLOW
+#define COL_STATUS  ST77XX_YELLOW
 
 // ---------- DISPLAY ----------
-// Se l'immagine risulta traslata di qualche pixel, ritocca gli offset "34".
-Arduino_DataBus *bus = new Arduino_HWSPI(TFT_DC, TFT_CS);
-Arduino_GFX *gfx = new Arduino_ST7789(
-  bus, TFT_RST, 1 /* rotation: 1 = landscape 320x172 */, true /* IPS */,
-  172, 320,        // risoluzione pannello
-  34, 0, 34, 0     // offset col/riga (pannello 172 centrato nel GRAM 240)
-);
+// L'offset di centraggio (pannello 172 nel GRAM 240) e' calcolato
+// automaticamente da gfx.init(172, 320) per questa classe di pannelli.
+Adafruit_ST7789 gfx = Adafruit_ST7789(&SPI, TFT_CS, TFT_DC, TFT_RST);
 
 // ---------- STATO ----------
-volatile uint16_t pulseCount = 0;
-volatile uint32_t lastPulseUs = 0;
+uint16_t pulseCount = 0;
 
 String number = "";
 bool   dialing = false;
 int    gateStable = -1;
 
-// ISR: un fronte di discesa = un impulso (con debounce)
-void onPulse() {
-  uint32_t now = micros();
-  if (now - lastPulseUs >= PULSE_DEBOUNCE_US) {
-    pulseCount++;
-    lastPulseUs = now;
-  }
-}
-
 void setup() {
+#if DEBUG_PULSES
+  Serial.begin(115200);
+  delay(3000);              // tempo per aprire il Serial Monitor dopo il reset da upload
+  Serial.println("=== Festival Phone: debug pulses attivo, boot OK ===");
+#endif
+
   pinMode(PIN_PULSE, INPUT_PULLUP);
   pinMode(PIN_GATE,  INPUT_PULLUP);
 
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, HIGH);
 
-  // Imposta i pin SPI0 PRIMA di gfx->begin()
+  // Imposta i pin SPI0 PRIMA di SPI.begin()
   SPI.setSCK(TFT_SCK);
   SPI.setTX(TFT_MOSI);
-  gfx->begin();
+  SPI.begin();
+
+  gfx.init(172, 320);      // risoluzione nativa del pannello (offset di centraggio calcolato automaticamente)
+  gfx.setRotation(1);      // 1 = landscape 320x172
 
   drawScreen();
 
-  attachInterrupt(digitalPinToInterrupt(PIN_PULSE), onPulse, FALLING);
   gateStable = digitalRead(PIN_GATE);
 }
 
 void loop() {
-  static int      lastRead = -1;
-  static uint32_t lastChangeMs = 0;
+  static int      lastGateRead   = -1;
+  static uint32_t lastGateChange = 0;
 
   int r = digitalRead(PIN_GATE);
-  if (r != lastRead) {
-    lastRead = r;
-    lastChangeMs = millis();
+  if (r != lastGateRead) {
+    lastGateRead = r;
+    lastGateChange = millis();
   }
-  if (r != gateStable && (millis() - lastChangeMs) >= GATE_DEBOUNCE_MS) {
+  if (r != gateStable && (millis() - lastGateChange) >= GATE_DEBOUNCE_MS) {
     gateStable = r;
     handleGate(gateStable);
+  }
+
+  // Debounce a livello stabile per il contatto impulsi: conta solo quando il
+  // pin resta LOW ininterrottamente per PULSE_DEBOUNCE_MS (filtra i rimbalzi
+  // meccanici, anche quelli irregolari, meglio del vecchio interrupt+timeout).
+  static int      lastPulseRead   = HIGH;
+  static uint32_t lastPulseChange = 0;
+  static int      pulseStable     = HIGH;
+
+  int p = digitalRead(PIN_PULSE);
+  if (p != lastPulseRead) {
+    lastPulseRead = p;
+    lastPulseChange = millis();
+  }
+  if (p != pulseStable && (millis() - lastPulseChange) >= PULSE_DEBOUNCE_MS) {
+    int prevStable = pulseStable;
+    pulseStable = p;
+    if (prevStable == HIGH && pulseStable == LOW) {
+      pulseCount++;
+#if DEBUG_PULSES
+      Serial.print("PULSE valido, totale cifra=");
+      Serial.println(pulseCount);
+#endif
+    }
   }
 }
 
@@ -129,19 +156,13 @@ void handleGate(int level) {
   if (nowDialing && !dialing) {
     // inizio composizione di una cifra
     dialing = true;
-    noInterrupts();
     pulseCount = 0;
-    lastPulseUs = micros();
-    interrupts();
     drawScreen();
   }
   else if (!nowDialing && dialing) {
     // fine composizione: leggo il conteggio
     dialing = false;
-    noInterrupts();
-    uint16_t c = pulseCount;
-    interrupts();
-    finalizeDigit(c);
+    finalizeDigit(pulseCount);
   }
 }
 
@@ -158,28 +179,28 @@ void finalizeDigit(uint16_t c) {
 }
 
 void drawScreen() {
-  gfx->fillScreen(BLACK);
+  gfx.fillScreen(ST77XX_BLACK);
 
-  gfx->setTextColor(COL_TITLE);
-  gfx->setTextSize(2);
-  gfx->setCursor(6, 8);
-  gfx->print("Festival Phone");
+  gfx.setTextColor(COL_TITLE);
+  gfx.setTextSize(2);
+  gfx.setCursor(6, 8);
+  gfx.print("Festival Phone");
 
-  gfx->drawFastHLine(0, 30, gfx->width(), COL_DIM);
+  gfx.drawFastHLine(0, 30, gfx.width(), COL_DIM);
 
-  gfx->setTextWrap(true);
-  gfx->setTextSize(4);
-  gfx->setCursor(6, 50);
+  gfx.setTextWrap(true);
+  gfx.setTextSize(4);
+  gfx.setCursor(6, 50);
   if (number.length()) {
-    gfx->setTextColor(COL_NUM);
-    gfx->print(number);
+    gfx.setTextColor(COL_NUM);
+    gfx.print(number);
   } else {
-    gfx->setTextColor(COL_DIM);
-    gfx->print("---");
+    gfx.setTextColor(COL_DIM);
+    gfx.print("---");
   }
 
-  gfx->setTextColor(COL_STATUS);
-  gfx->setTextSize(2);
-  gfx->setCursor(6, gfx->height() - 22);
-  gfx->print(dialing ? "comporre..." : "pronto");
+  gfx.setTextColor(COL_STATUS);
+  gfx.setTextSize(2);
+  gfx.setCursor(6, gfx.height() - 22);
+  gfx.print(dialing ? "comporre..." : "pronto");
 }
