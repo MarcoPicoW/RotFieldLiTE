@@ -130,6 +130,53 @@ Set the XL6009 output to ~26 V with a multimeter **before** connecting the
 L298N. The bench supply's ammeter is slow, so real peaks at each polarity
 reversal may be somewhat higher: still well within the 5 V budget.
 
+### Future: low-power bell driver (portable version)
+
+The L298N gets warm even when the bell is idle. With ENA jumpered and
+IN1/IN2 LOW the chip stays enabled, and its logic supply comes from the
+module's onboard 78M05, which drops 26 V -> 5 V linearly. Datasheet estimate
+(not measured): ~13 mA on VS plus ~24 mA of logic current (plus the power LED)
+through the regulator, i.e. **~1 W continuous**, ~24 Wh/day: more than 10 % of
+the 256 Wh battery, for a bell that rings a few seconds a day. Fine for now,
+to be fixed in the portable version:
+
+1. **Power-gate the whole bell branch** (XL6009 + driver) from an RP2350 GPIO,
+   so it draws nothing between calls:
+
+   ```
+   Pi 5V --+------------ S [P-MOSFET AO3401 / IRLML6402] D --+-- XL6009 IN+
+           |                     G                           +-- 10-47uF
+          100k                   |
+           +---------------------+
+                                 D [N-MOSFET 2N7000 / BSS138]
+   GP27 (RP2350) -- 1k --+------ G
+                        100k     S
+                         |       |
+                        GND     GND
+   ```
+
+   - GP27 HIGH -> N-FET on -> P-FET gate pulled low -> branch powered. The
+     N-FET is needed because 3.3 V can't turn off a P-FET sourced at 5 V.
+   - The 100k pull-down keeps the branch **off** while the RP2350 is in
+     reset/boot or hung.
+   - Keep the big 220 uF on the Pi side of the switch and only a small cap
+     after it, otherwise the inrush on switch-on can brown out the Pi.
+   - IN1/IN2 must stay LOW while the driver is unpowered (`coilOff()` already
+     does this), so the GPIOs don't back-power it through its input clamps.
+   - Firmware: power on when ringing starts, wait ~200-300 ms (non-blocking)
+     for the XL6009 to settle before the first strike, `coilOff()` and power
+     off when ringing stops.
+
+2. **Replace the L298N with a DRV8871** MOSFET H-bridge: same IN1/IN2 polarity
+   control (sketch almost unchanged), 45 V max, no ~2 V Darlington drop, no
+   onboard linear regulator, and it auto-sleeps at ~1 uA when IN1 = IN2 = LOW.
+
+Considered and rejected: the SparkFun **EasyDriver** (A3967). It's a stepper
+driver: polarity is set through STEP/DIR pulses (coil A only flips every 2
+full steps), its logic still runs from an onboard linear regulator on the
+motor rail, its ~30 V motor-supply limit is close to our 26 V, and its current
+chopper is pointless for a ~27 mA coil.
+
 ## Software
 
 ### `Test/festival_phone_dial_display/festival_phone_dial_display.ino` (RP2350)
