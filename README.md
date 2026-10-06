@@ -268,4 +268,4 @@ peak current at 24 V.
 
 ## License
 
-TBD.
+[GPL-3.0](./LICENSE).
