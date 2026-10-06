@@ -70,3 +70,6 @@ Testing/
 
 # Python
 __pycache__/
+
+# Personal scratch files
+Admin/

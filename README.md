@@ -20,8 +20,6 @@ sit in a field for days.
 #           + lite (light, field-portable)
 #
 # In short: a rotary landline, gone wireless over LTE, for the festival field.
-#
-# Legal-humorous note: the Rothschilds are not involved but the Mossad may still listen to your calls.
 ```
 
 ## Concept
@@ -224,8 +222,7 @@ answering by lifting the handset.
 
 ## Roadmap (10 phases)
 
-Full detail lives in [`festival-phone-roadmap.md`](./festival-phone-roadmap.md)
-(not yet written).
+Full detail lives in [`festival-phone-roadmap.md`](./festival-phone-roadmap.md).
 
 1. ~~OS and UART setup~~ — done, but not via a Bluetooth/PL011 swap: the
    SIM7600 turned out to be USB, not GPIO UART. The GPIO14/15 UART instead
