@@ -44,7 +44,7 @@ in the name.
 | Block | Component | Notes |
 |---|---|---|
 | SBC | Raspberry Pi Zero 2 W | only sends AT commands, over **USB** to the SIM7600 (see note below) |
-| Cellular module | Waveshare SIM7600G-H HAT | global-band variant; the E-H European one would suffice for a fixed CH install |
+| Cellular module | [Waveshare SIM7600G-H 4G HAT (B)](https://www.waveshare.com/wiki/SIM7600G-H_4G_HAT_(B)) | global-band variant; the E-H European one would suffice for a fixed CH install |
 | Audio | handset mic + speaker -> TRRS jack -> NAU8810 codec on the HAT | call audio handled in hardware by the SIM7600 |
 | Bell driver | L298N H-bridge, fed ~26 V by an XL6009 boost from the Pi's 5 V pin | coil sees ~24 V after the L298N drop; the Pi never touches audio, only AT |
 | Dial/hook MCU | Waveshare RP2040-Zero (RP2350) | reads the rotary dial pulses and hook switch, drives the local ST7789 display, forwards the dialed number / hangup to the Pi over UART |
@@ -183,7 +183,7 @@ Reads the rotary dial (pulse + gate contacts), shows the composed number on the
 ST7789 display, and talks to the Pi over `Serial1` (UART, see wiring above):
 
 - After 3 s of silence following the last digit, sends the full dialed number
-  as a plain digits-only line (e.g. `0791234567`).
+  as a plain digits-only line (e.g. `0790000000`).
 - When the hook switch (GPIO26) goes low (handset back down), sends a
   `HANGUP` line.
 - The display shows `chiamata in corso` once the number has been sent, until a

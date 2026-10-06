@@ -7,7 +7,7 @@ Gira sul Pi Zero 2W. Fa da ponte tra l'RP2350 (UART GPIO14/15,
 AT: /dev/ttyUSB2).
 
 PROTOCOLLO RP2350 -> Pi (vedi festival_phone_dial_display.ino)
-  - riga di sole cifre (es. "0791234567") -> compone il numero (ATD)
+  - riga di sole cifre (es. "0790000000") -> compone il numero (ATD)
   - "HANGUP"  -> cornetta riappesa, chiude la chiamata (AT+CHUP)
   - "ANSWER"  -> cornetta sollevata durante lo squillo, risponde (ATA)
 
